@@ -1,0 +1,107 @@
+--------------------------/*installation of react app and sockit.io*/-------------------------------
+
+npx create-react-app collaborative-editor
+cd collaborative-editor
+npm install socket.io-client
+
+------------------------------/*app.js*/-------------------------------------
+
+import React, { useState, useEffect } from "react";
+import io from "socket.io-client";
+
+const socket = io.connect("http://localhost:5000");
+
+function App() {
+  const [documentContent, setDocumentContent] = useState("");
+
+  useEffect(() => {
+    // Listen for incoming updates from server
+    socket.on("document", (data) => {
+      setDocumentContent(data);
+    });
+  }, []);
+
+  const handleChange = (e) => {
+    const value = e.target.value;
+    setDocumentContent(value);
+    socket.emit("document", value); // Emit the updated content to server
+  };
+
+  return (
+    <div>
+      <h1>Real-Time Collaborative Document Editor</h1>
+      <textarea
+        value={documentContent}
+        onChange={handleChange}
+        rows="20"
+        cols="100"
+        placeholder="Start collaborating..."
+      />
+    </div>
+  );
+}
+
+export default App;
+
+
+----------------------------------------------/*init and install the sockit.io and mangoose*/-----------------------------------
+
+npm init -y
+npm install express socket.io mongoose
+
+-------------------------------------------------/*server.js*/--------------------------------------------------
+
+const express = require("express");
+const http = require("http");
+const socketIo = require("socket.io");
+const mongoose = require("mongoose");
+
+const app = express();
+const server = http.createServer(app);
+const io = socketIo(server);
+
+// MongoDB Connection
+mongoose.connect("mongodb://localhost:27017/collaborative-editor", {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+});
+
+// Document Schema
+const DocumentSchema = new mongoose.Schema({
+  content: String,
+});
+
+const Document = mongoose.model("Document", DocumentSchema);
+
+// Load the document from DB on connection
+io.on("connection", (socket) => {
+  console.log("A user connected");
+
+  // Load the document from the database and send it to the client
+  Document.findOne({}, (err, doc) => {
+    if (doc) {
+      socket.emit("document", doc.content);
+    }
+  });
+
+  // When user makes changes to the document
+  socket.on("document", (data) => {
+    // Broadcast to other users
+    socket.broadcast.emit("document", data);
+
+    // Save to MongoDB
+    Document.findOneAndUpdate({}, { content: data }, { upsert: true }, (err) => {
+      if (err) console.error("Error saving document: ", err);
+    });
+  });
+
+  socket.on("disconnect", () => {
+    console.log("A user disconnected");
+  });
+});
+
+// Starting the server
+const PORT = process.env.PORT || 5000;
+server.listen(PORT, () => {
+  console.log(`Server listening on port ${PORT}`);
+});
